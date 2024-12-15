@@ -16,6 +16,7 @@ void main()
     gl_Position = vec4(position, 1.0);
 }
 """
+
 fragment_shader = """
 #version 330 core
 layout(location = 0, index = 0) out vec4 out_color;

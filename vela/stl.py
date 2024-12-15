@@ -6,12 +6,9 @@ def parse_stl(path: Path) -> tuple[np.ndarray, np.ndarray]:
     normals = []
 
     with open(path, 'rb') as f:
-        # Skip header
-        f.read(80)
+        f.read(80)  # Skip header
 
-        # Get number of triangles
         num_triangles = int.from_bytes(f.read(4), 'little')
-
         for _ in range(num_triangles):
             # Read normal vector (3 floats)
             nx = float(np.frombuffer(f.read(4), np.float32)[0])
