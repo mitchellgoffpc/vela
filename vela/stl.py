@@ -28,4 +28,4 @@ def parse_stl(path: Path) -> tuple[np.ndarray, np.ndarray]:
             # Skip attribute byte count
             f.read(2)
 
-    return np.array(vertices), np.array(normals)
+    return np.array(vertices, dtype=np.float32), np.array(normals, dtype=np.float32)
