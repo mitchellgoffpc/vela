@@ -212,7 +212,7 @@ def parse_joint(elem: ET.Element) -> Joint:
 
 # URDF parsers
 
-def parse_urdf(path: Path) -> tuple[list[Link], list[Joint]]:
+def parse_urdf(path: Path | str) -> tuple[list[Link], list[Joint]]:
     tree = ET.parse(path)
     root = tree.getroot()
     links = [parse_link(elem) for elem in root.findall('link')]
