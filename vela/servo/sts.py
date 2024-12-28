@@ -1,4 +1,5 @@
 import struct
+from typing import Iterator
 from contextlib import contextmanager
 from vela.servo.packets import PacketHandler
 
@@ -82,7 +83,7 @@ class STSHandler(PacketHandler):
         return self.reg_write_bytes(device_id, Registers.TARGET_ACCELERATION, data)
 
     @contextmanager
-    def unlock_eprom(self, device_id: int) -> None:
+    def unlock_eprom(self, device_id: int) -> Iterator[None]:
         self.write_value(device_id, Registers.WRITE_LOCK, 1, 0)
         yield
         self.write_value(device_id, Registers.WRITE_LOCK, 1, 1)

@@ -95,7 +95,7 @@ def parse_array(text: Optional[str], attr_path: str) -> list[float]:
     return values
 
 def parse_origin(elem: ET.Element, tag_path: str) -> Origin:
-    xyz, rpy = [0] * 3, [0] * 3
+    xyz, rpy = [0.] * 3, [0.] * 3
     origin_elems = elem.findall('origin')
     if len(origin_elems) > 1:
         raise ValueError(f"Element {tag_path} must contain at most one 'origin' tag")
@@ -176,7 +176,7 @@ def parse_limit(elem: ET.Element, tag_path: str) -> Optional[Limit]:
     if len(limit_elems) > 1:
         raise ValueError(f"Element {tag_path} must contain at most one 'limit' tag")
     elif len(limit_elems) == 1:
-        lower, upper = 0, 0
+        lower, upper = 0., 0.
         if (lower_attr := limit_elems[0].get('lower')) is not None:
             lower = parse_float(lower_attr, f'{tag_path}/limit/@lower')
         if (upper_attr := limit_elems[0].get('upper')) is not None:
@@ -289,7 +289,7 @@ if __name__ == '__main__':
 
     print("Links:")
     for link in links:
-        print(f"{link.name} | meshes: {','.join(f'{model.geometry.filename} ({len(model.geometry.vertices)})' for model in link.visual)}")
+        print(link.name)
     print()
 
     print("Joints:")

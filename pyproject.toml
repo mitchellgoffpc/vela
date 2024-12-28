@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vela"
+version = "0.1.0"
+description = "A 3D visualization tool for URDF files"
+authors = [
+    {name = "Mitchell Goff", email = "mitchellgoffpc@gmail.com"},
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "PyQt6",
+    "pyserial",
+    "PyOpenGL",
+]
+
+[project.scripts]
+vela = "vela.main:main"
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "flake8",
+    "mypy",
+    "pre-commit",
+]
+
+[tool.setuptools]
+packages = ["ask"]
+include-package-data = true
+
+[tool.pytest.ini_options]
+addopts = "-v"
+testpaths = [
+    "tests",
+]
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[tool.flake8]
+max-line-length = 120
+indent-size = 4
+extend-ignore = ["E221", "E302", "E501", "E701"]
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    "vela/_version.py",
+]

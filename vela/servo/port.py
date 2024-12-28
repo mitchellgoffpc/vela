@@ -1,5 +1,5 @@
 import serial
-from typing import Optional
+from typing import Optional, Self
 
 SUPPORTED_BAUDRATES = [4800, 9600, 14400, 19200, 38400, 57600, 115200, 128000, 250000, 500000, 1000000]
 DEFAULT_BAUDRATE = 1000000
@@ -11,9 +11,9 @@ class SerialPort:
 
         self.baudrate: int = baudrate
         self.port_name: str = port_name
-        self.port: Optional[Serial] = None
+        self.port: Optional[serial.Serial] = None
 
-    def __enter__(self) -> 'SerialPort':
+    def __enter__(self) -> Self:
         self.port = serial.Serial(
             port=self.port_name,
             baudrate=self.baudrate,

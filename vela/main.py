@@ -10,9 +10,6 @@ from PyQt6.QtOpenGL import QOpenGLVertexArrayObject, QOpenGLBuffer, QOpenGLShade
 
 from vela.urdf import load_urdf, LoadedMesh
 
-from vela.stl import load_stl
-from vela.urdf import load_urdf
-
 vertex_shader = """
 #version 330 core
 layout (location = 0) in vec3 aPos;
@@ -127,7 +124,6 @@ class OpenGLWidget(QOpenGLWidget):
         self.camera_radius = 3.0
         self.urdf_path = urdf_path
 
-
     def mousePressEvent(self, event):
         self.last_pos = event.position().toPoint()
 
@@ -208,7 +204,7 @@ class OpenGLWidget(QOpenGLWidget):
 
         # Create model matrix
         model = np.eye(4)
-        self.shader.setUniformValue("model", QMatrix4x4(model.flatten()))
+        self.shader.setUniformValue("model", QMatrix4x4(*model.flatten()))
 
         vbo.release()
         nbo.release()

@@ -1,4 +1,5 @@
 import struct
+from typing import Self
 from vela.servo.port import SerialPort, DEFAULT_BAUDRATE
 
 TXPACKET_MAX_LEN = 250
@@ -47,7 +48,7 @@ class PacketHandler:
         self.port = SerialPort(port_name, baudrate)
         self.busy = False
 
-    def __enter__(self) -> 'STSPort':
+    def __enter__(self) -> Self:
         self.port.__enter__()
         return self
 
@@ -122,7 +123,7 @@ class PacketHandler:
 
         # transmit
         self.port.flush()
-        written_packet_length = self.port.write(packet)
+        written_packet_length = self.port.write(bytes(packet))
         if written_packet_length != len(packet):
             raise RuntimeError("Failed to transmit the entire instruction packet")
         if device_id != BROADCAST_ID:

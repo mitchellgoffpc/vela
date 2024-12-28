@@ -1,3 +1,16 @@
-.ropeproject
+# Bytecode
+__pycache__/
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+
+# System
 .DS_Store
-__pycache__
+.ropeproject
+
+# Cache
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
