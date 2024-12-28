@@ -8,7 +8,10 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtOpenGL import QOpenGLVertexArrayObject, QOpenGLBuffer, QOpenGLShader, QOpenGLShaderProgram
 
-from vela.stl import parse_stl
+from vela.urdf import load_urdf, LoadedMesh
+
+from vela.stl import load_stl
+from vela.urdf import load_urdf
 
 vertex_shader = """
 #version 330 core
@@ -115,13 +118,15 @@ def create_buffer(data, buffer_type):
 # Main OpenGL Widget
 
 class OpenGLWidget(QOpenGLWidget):
-    def __init__(self):
+    def __init__(self, urdf_path):
         super().__init__()
         self.setWindowTitle("Vela")
         self.resize(800, 600)
         self.last_pos = QPoint()
         self.rotation = [0, 0]
         self.camera_radius = 3.0
+        self.urdf_path = urdf_path
+
 
     def mousePressEvent(self, event):
         self.last_pos = event.position().toPoint()
@@ -155,9 +160,28 @@ class OpenGLWidget(QOpenGLWidget):
         self.shader.link()
         self.shader.bind()
 
-        vertices, normals = parse_stl("/Users/mitchell/Downloads/so-100 follower/STS3215.stl")
-        normals = compute_vertex_normals(vertices)  # These normals look less weird than the ones in the STL
-        vertices = vertices * 0.1  # This model is pretty big, so scale it down
+        # Load URDF file
+        links, _ = load_urdf(self.urdf_path)
+        if not links:
+            raise ValueError("No links found in the URDF file")
+
+        # Use the first link's first visual model
+        first_link = links[0]
+        if not first_link.visual:
+            raise ValueError("No visual models found in the first link")
+
+        first_model = first_link.visual[0]
+        if not isinstance(first_model.geometry, LoadedMesh):
+            raise ValueError("The first model's geometry is not a LoadedMesh")
+
+        vertices = first_model.geometry.vertices
+        normals = first_model.geometry.normals
+        normals = compute_vertex_normals(vertices)  # These normals look less weird than the ones in the STL file
+
+        # Scale the model to fit in view
+        scale_factor = 2.0 / np.max(np.abs(vertices))
+        vertices = vertices * scale_factor
+
         self.n_elements = len(vertices) * 3
 
         self.vao = QOpenGLVertexArrayObject()
@@ -220,6 +244,12 @@ class OpenGLWidget(QOpenGLWidget):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print(f"Usage: {sys.argv[0]} <urdf_file>")
+        sys.exit(1)
+
+    urdf_path = sys.argv[1]
+
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseDesktopOpenGL)
 
     fmt = QSurfaceFormat()
@@ -228,6 +258,6 @@ if __name__ == "__main__":
     QSurfaceFormat.setDefaultFormat(fmt)
 
     app = QApplication(sys.argv)
-    w = OpenGLWidget()
+    w = OpenGLWidget(urdf_path)
     w.show()
     sys.exit(app.exec())

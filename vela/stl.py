@@ -1,7 +1,7 @@
 import numpy as np
 from pathlib import Path
 
-def parse_stl(path: Path | str) -> tuple[np.ndarray, np.ndarray]:
+def load_stl(path: Path | str) -> tuple[np.ndarray, np.ndarray]:
     vertices = []
     normals = []
 

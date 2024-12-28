@@ -1,7 +1,10 @@
+import numpy as np
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass
+
+from vela.stl import load_stl
 
 # Common dataclasses
 
@@ -9,7 +12,6 @@ from dataclasses import dataclass
 class Origin:
     xyz: list[float]
     rpy: list[float]
-
 
 # Link dataclasses
 
@@ -31,16 +33,21 @@ class Mesh:
     filename: str
 
 @dataclass
+class LoadedMesh:
+    filename: str
+    vertices: np.ndarray
+    normals: np.ndarray
+
+@dataclass
 class Model:
     origin: Origin
-    geometry: Cylinder | Sphere | Box | Mesh
+    geometry: Cylinder | Sphere | Box | Mesh | LoadedMesh
 
 @dataclass
 class Link:
     name: str
     visual: list[Model]
     collision: list[Model]
-
 
 # Joint dataclasses
 
@@ -210,7 +217,7 @@ def parse_joint(elem: ET.Element) -> Joint:
     return Joint(name=joint_name, type=joint_type, parent=parent, child=child, origin=origin, axis=axis, limit=limit)
 
 
-# URDF parsers
+# URDF parser
 
 def parse_urdf(path: Path | str) -> tuple[list[Link], list[Joint]]:
     tree = ET.parse(path)
@@ -218,3 +225,74 @@ def parse_urdf(path: Path | str) -> tuple[list[Link], list[Joint]]:
     links = [parse_link(elem) for elem in root.findall('link')]
     joints = [parse_joint(elem) for elem in root.findall('joint')]
     return links, joints
+
+
+# URDF loader
+
+def locate_urdf_file(path: Path) -> Path:
+    # locate the package.xml file(s)
+    package_xml_files = list(path.rglob('package.xml'))
+    if not package_xml_files:
+        raise FileNotFoundError(f"No package.xml file found in {path}")
+
+    # sort package.xml files by depth, and raise an error if there are multiple at the same depth
+    package_xml_files.sort(key=lambda p: len(p.parts))
+    if len(package_xml_files) > 1 and len(package_xml_files[0].parts) == len(package_xml_files[1].parts):
+        raise ValueError("Multiple package.xml files found at the same directory level")
+
+    root_dir = package_xml_files[0].parent
+    urdf_files = list(root_dir.glob('urdf/*.urdf')) or list(root_dir.glob('urdf/*.xacro'))
+    if not urdf_files:
+        raise FileNotFoundError(f"No URDF or XACRO files found in {root_dir / 'urdf'}")
+    return max(urdf_files, key=lambda f: f.stat().st_size)  # Choose the largest file  # TODO: Use a better heuristic
+
+def resolve_package_url(url: str, package_root: Optional[Path]) -> str:
+    if url.startswith('package://'):
+        if package_root is None:
+            raise ValueError(f"Cannot resolve package URL '{url}' without package_root")
+        return str(package_root / url.removeprefix('package://'))
+    else:
+        return url
+
+def load_urdf(path: Path | str) -> tuple[list[Link], list[Joint]]:
+    path = Path(path)
+    if path.is_file():
+        package_root = None
+        urdf_file = path
+    elif path.is_dir():
+        package_root = path
+        urdf_file = locate_urdf_file(path)
+    else:
+        raise FileNotFoundError(f"Invalid path: {path}")
+
+    # Parse urdf and load mesh files
+    links, joints = parse_urdf(urdf_file)
+    for link in links:
+        for model in link.visual + link.collision:
+            if isinstance(model.geometry, Mesh):
+                filename = resolve_package_url(model.geometry.filename, package_root)
+                vertices, normals = load_stl(filename)
+                model.geometry = LoadedMesh(filename=filename, vertices=vertices, normals=normals)
+
+    return links, joints
+
+
+# Entry point for testing
+
+if __name__ == '__main__':
+    import sys
+    if len(sys.argv) != 2:
+        print(f"Usage: {sys.argv[0]} <urdf_file>")
+        sys.exit(1)
+
+    links, joints = load_urdf(sys.argv[1])
+
+    print("Links:")
+    for link in links:
+        print(f"{link.name} | meshes: {','.join(f'{model.geometry.filename} ({len(model.geometry.vertices)})' for model in link.visual)}")
+    print()
+
+    print("Joints:")
+    for joint in joints:
+        print(f"{joint.name} | {joint.parent} -> {joint.child}")
+    print()
