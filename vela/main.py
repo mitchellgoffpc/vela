@@ -1,5 +1,4 @@
 import sys
-import math
 import numpy as np
 from dataclasses import dataclass
 from OpenGL import GL
@@ -9,6 +8,7 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtOpenGL import QOpenGLVertexArrayObject
 
+from vela.math import rot_from_euler, look_at, projection_matrix
 from vela.urdf import load_urdf, LoadedMesh, Link, Joint, Origin
 from vela.shaders import create_shader_program, create_vao
 
@@ -18,77 +18,16 @@ class MeshObject:
     n_elements: int
     model_matrix: np.ndarray
 
-def look_at(eye: np.ndarray, target: np.ndarray, up: np.ndarray) -> np.ndarray:
-    forward = target - eye
-    forward = forward / np.linalg.norm(forward)
-    right = np.cross(forward, up)
-    right = right / np.linalg.norm(right)
-    up = np.cross(right, forward)
-
-    rotation = np.array([
-        [right[0], right[1], right[2], 0],
-        [up[0], up[1], up[2], 0],
-        [-forward[0], -forward[1], -forward[2], 0],
-        [0, 0, 0, 1]
-    ], dtype=np.float32)
-
-    translation = np.array([
-        [1, 0, 0, -eye[0]],
-        [0, 1, 0, -eye[1]],
-        [0, 0, 1, -eye[2]],
-        [0, 0, 0, 1]
-    ], dtype=np.float32)
-
-    return np.dot(rotation, translation)
-
-def projection_matrix(fovy: float, aspect: float, near: float, far: float) -> np.ndarray:
-    f = 1 / math.tan(math.radians(fovy) / 2)
-    return np.array([
-        [f / aspect, 0, 0, 0],
-        [0, f, 0, 0],
-        [0, 0, (far + near) / (near - far), (2 * far * near) / (near - far)],
-        [0, 0, -1, 0]
-    ], dtype=np.float32)
-
-def rot_from_euler(roll: float, pitch: float, yaw: float) -> np.ndarray:
-    Rx = np.array([
-        [1, 0, 0, 0],
-        [0, np.cos(roll), -np.sin(roll), 0],
-        [0, np.sin(roll), np.cos(roll), 0],
-        [0, 0, 0, 1]
-    ], dtype=np.float32)
-
-    Ry = np.array([
-        [np.cos(pitch), 0, np.sin(pitch), 0],
-        [0, 1, 0, 0],
-        [-np.sin(pitch), 0, np.cos(pitch), 0],
-        [0, 0, 0, 1]
-    ], dtype=np.float32)
-
-    Rz = np.array([
-        [np.cos(yaw), -np.sin(yaw), 0, 0],
-        [np.sin(yaw), np.cos(yaw), 0, 0],
-        [0, 0, 1, 0],
-        [0, 0, 0, 1]
-    ], dtype=np.float32)
-
-    return Rz @ Ry @ Rx
-
 def create_transform_matrix(origin: Origin) -> np.ndarray:
-    translation = np.eye(4, dtype=np.float32)
-    rotation = np.eye(4, dtype=np.float32)
-
     tx, ty, tz = origin.xyz
+    r, p, y = origin.rpy
     translation = np.array([
         [1, 0, 0, tx],
         [0, 1, 0, ty],
         [0, 0, 1, tz],
         [0, 0, 0, 1]
     ], dtype=np.float32)
-
-    roll, pitch, yaw = origin.rpy
-    rotation = rot_from_euler(roll, pitch, yaw)
-
+    rotation = rot_from_euler(r, p, y)
     return translation @ rotation
 
 def build_transformations(links: list[Link], joints: list[Joint]) -> dict[str, np.ndarray]:
@@ -194,9 +133,9 @@ class OpenGLWidget(QOpenGLWidget):
 
         self.shader.bind()
 
-        camera_x = self.camera_radius * math.sin(math.radians(self.rotation[0])) * math.cos(math.radians(self.rotation[1]))
-        camera_y = self.camera_radius * math.sin(math.radians(self.rotation[1]))
-        camera_z = self.camera_radius * math.cos(math.radians(self.rotation[0])) * math.cos(math.radians(self.rotation[1]))
+        camera_x = self.camera_radius * np.sin(np.radians(self.rotation[0])) * np.cos(np.radians(self.rotation[1]))
+        camera_y = self.camera_radius * np.sin(np.radians(self.rotation[1]))
+        camera_z = self.camera_radius * np.cos(np.radians(self.rotation[0])) * np.cos(np.radians(self.rotation[1]))
         camera_pos = np.array([camera_x, camera_y, camera_z], dtype=np.float32)
         camera_target = np.array([0.0, 0.0, 0.0], dtype=np.float32)
         camera_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
