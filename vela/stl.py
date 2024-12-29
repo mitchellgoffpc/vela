@@ -28,4 +28,4 @@ def load_stl(path: Path | str) -> tuple[np.ndarray, np.ndarray]:
             # Skip attribute byte count
             f.read(2)
 
-    return np.array(vertices, dtype=np.float32), np.array(normals, dtype=np.float32)
+    return np.array(vertices, dtype=np.float32), np.array(normals, dtype=np.float32)[:, None].repeat(3, axis=1)

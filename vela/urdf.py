@@ -31,6 +31,7 @@ class Sphere:
 @dataclass
 class Mesh:
     filename: str
+    scale: list[float]
 
 @dataclass
 class LoadedMesh:
@@ -123,9 +124,12 @@ def parse_sphere(elem: ET.Element, tag_path: str) -> Sphere:
     return Sphere(radius=radius)
 
 def parse_mesh(elem: ET.Element, tag_path: str) -> Mesh:
+    scale = [1.] * 3
     if (filename := elem.get('filename')) is None:
         raise ValueError(f"Missing required attribute {tag_path}/@filename")
-    return Mesh(filename=filename)
+    if (scale_attr := elem.get('scale')) is not None:
+        scale = parse_array(scale_attr, f'{tag_path}/@scale')
+    return Mesh(filename=filename, scale=scale)
 
 def parse_geometry(elem: ET.Element, tag_path: str) -> Box | Cylinder | Sphere | Mesh:
     geometry_elems = elem.findall('geometry')
@@ -272,6 +276,8 @@ def load_urdf(path: Path | str) -> tuple[list[Link], list[Joint]]:
             if isinstance(model.geometry, Mesh):
                 filename = resolve_package_url(model.geometry.filename, package_root)
                 vertices, normals = load_stl(filename)
+                if model.geometry.scale != [1., 1., 1.]:
+                    vertices *= np.array(model.geometry.scale)
                 model.geometry = LoadedMesh(filename=filename, vertices=vertices, normals=normals)
 
     return links, joints
