@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass
 
-from vela.stl import load_stl
+from vela.helpers.stl import load_stl
 
 # Common dataclasses
 
