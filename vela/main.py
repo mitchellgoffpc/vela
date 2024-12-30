@@ -2,9 +2,9 @@ import sys
 import numpy as np
 from dataclasses import dataclass
 from OpenGL import GL
-from PyQt6.QtCore import Qt, QPoint, QTimer
-from PyQt6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent, QSurfaceFormat, QMatrix4x4
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent, QResizeEvent, QSurfaceFormat, QMatrix4x4
+from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QSlider, QLabel, QVBoxLayout
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtOpenGL import QOpenGLVertexArrayObject
 
@@ -45,9 +45,9 @@ def rotation_matrix(axis: np.ndarray, angle: float) -> np.ndarray:
         [0,             0,             0,             1]   # noqa: E226, E241
     ], dtype=np.float32)
 
-def build_transformations(links: list[Link], joints: list[Joint], joint_angles: dict[str, float]) -> dict[str, np.ndarray]:
+def build_transformations(links: dict[str, Link], joints: dict[str, Joint], joint_angles: dict[str, float]) -> dict[str, np.ndarray]:
     transformations: dict[str, np.ndarray] = {}
-    joint_dict = {joint.child: joint for joint in joints}
+    joint_dict = {joint.child: joint for joint in joints.values()}
 
     def compute_transform(link_name: str) -> np.ndarray:
         if link_name in transformations:
@@ -74,7 +74,7 @@ def build_transformations(links: list[Link], joints: list[Joint], joint_angles: 
             transformations[link_name] = parent_transform @ joint_transform
         return transformations[link_name]
 
-    for link in links:
+    for link in links.values():
         compute_transform(link.name)
 
     return transformations
@@ -83,45 +83,27 @@ def build_transformations(links: list[Link], joints: list[Joint], joint_angles: 
 # Main OpenGL Widget
 
 class OpenGLWidget(QOpenGLWidget):
-    def __init__(self, urdf_path: str):
+    def __init__(self, links: list[Link], joints: list[Joint]):
         super().__init__()
-        self.setWindowTitle("Vela")
-        self.resize(800, 600)
         self.last_pos = QPoint()
         self.camera_rotation: list[float] = [0, 0]
         self.camera_radius: float = 1.0
         self.meshes: list[MeshObject] = []
 
-        self.links, self.joints = load_urdf(urdf_path)
-        self.link_dict = {link.name: link for link in self.links}
-        self.joint_dict = {joint.name: joint for joint in self.joints}
-        self.joint_angles = {joint.name: 0.0 for joint in self.joints}
-
-        revolute_joints = [joint.name for joint in self.joints if joint.type == 'continuous']
-        self.first_revolute_joint = revolute_joints[0]
-
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_animation)
-        self.timer.start(16)
-
-    def update_animation(self):
-        if self.first_revolute_joint:
-            self.joint_angles[self.first_revolute_joint] += 0.01
-            self.joint_angles[self.first_revolute_joint] %= 2 * np.pi
-            self.update_transformations()
-            self.update()
+        self.links = {link.name: link for link in links}
+        self.joints = {joint.name: joint for joint in joints}
+        self.joint_angles = {joint.name: 0.0 for joint in joints}
+        self.transformations: dict[str, np.ndarray] = {}
+        self.update_transformations()
 
     def update_transformations(self):
         self.transformations = build_transformations(self.links, self.joints, self.joint_angles)
         for mesh in self.meshes:
-            link_name = mesh.link_name
-            link = self.link_dict[link_name]
-            for visual in link.visual:
+            for visual in self.links[mesh.link_name].visual:
                 if isinstance(visual.geometry, LoadedMesh):
                     visual_transform = create_transform_matrix(visual.origin)
-                    model_matrix = self.transformations[link_name] @ visual_transform
+                    model_matrix = self.transformations[mesh.link_name] @ visual_transform
                     mesh.model_matrix = model_matrix
-                    break
 
     def mousePressEvent(self, event: QMouseEvent | None) -> None:
         if event:
@@ -151,8 +133,8 @@ class OpenGLWidget(QOpenGLWidget):
 
     def initializeGL(self) -> None:
         self.shader = create_shader_program(self)
-        self.transformations = build_transformations(self.links, self.joints, self.joint_angles)
-        for link in self.links:
+        self.update_transformations()
+        for link in self.links.values():
             for visual in link.visual:
                 if isinstance(visual.geometry, LoadedMesh):
                     visual_transform = create_transform_matrix(visual.origin)
@@ -198,6 +180,48 @@ class OpenGLWidget(QOpenGLWidget):
         self.shader.release()
 
 
+# Main application window
+
+class MainWindow(QMainWindow):
+    def __init__(self, urdf_path: str):
+        super().__init__()
+        self.setWindowTitle("Vela")
+        self.resize(800, 600)
+
+        # Create opengl widget
+        links, joints = load_urdf(urdf_path)
+        self.opengl_widget = OpenGLWidget(links, joints)
+        self.setCentralWidget(self.opengl_widget)
+
+        # Create sliders widget
+        sliders_layout = QVBoxLayout()
+        for joint in joints:
+            if joint.type in ['revolute', 'continuous']:
+                label = QLabel(joint.name)
+                label.setStyleSheet("background-color: none; color: white;")
+                slider = QSlider(Qt.Orientation.Horizontal)
+                slider.setStyleSheet("background-color: none;")
+                slider.setRange(-360, 360)
+                slider.setValue(0)
+                slider.valueChanged.connect(lambda value, joint_name=joint.name: self.on_slider_value_changed(joint_name, value))
+                sliders_layout.addWidget(label)
+                sliders_layout.addWidget(slider)
+
+        self.sliders_widget = QWidget(self)
+        self.sliders_widget.setLayout(sliders_layout)
+        self.sliders_widget.setStyleSheet("background-color: rgba(0, 0, 0, 100);")
+        self.sliders_widget.setGeometry(10, self.height() - 350, 300, 340)
+
+    def resizeEvent(self, event: QResizeEvent | None) -> None:
+        self.sliders_widget.setGeometry(10, self.height() - 350, 300, 340)
+
+    def on_slider_value_changed(self, joint_name: str, value: int):
+        angle_rad = np.radians(value)
+        self.opengl_widget.joint_angles[joint_name] = angle_rad
+        self.opengl_widget.update_transformations()
+        self.opengl_widget.update()
+
+
 # Entry point
 
 if __name__ == "__main__":
@@ -212,6 +236,6 @@ if __name__ == "__main__":
     QSurfaceFormat.setDefaultFormat(fmt)
 
     app = QApplication(sys.argv)
-    w = OpenGLWidget(sys.argv[1])
-    w.show()
+    main_window = MainWindow(sys.argv[1])
+    main_window.show()
     sys.exit(app.exec())
