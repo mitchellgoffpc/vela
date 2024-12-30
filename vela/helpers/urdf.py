@@ -1,7 +1,6 @@
 import numpy as np
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Optional
 from dataclasses import dataclass
 
 from vela.helpers.stl import load_stl
@@ -70,13 +69,13 @@ class Joint:
     parent: str
     child: str
     origin: Origin
-    axis: Optional[Axis]
-    limit: Optional[Limit]
+    axis: Axis
+    limit: Limit | None
 
 
 # Common parsers
 
-def parse_float(text: Optional[str], attr_path: str) -> float:
+def parse_float(text: str | None, attr_path: str) -> float:
     if text is None:
         raise ValueError(f"Missing required attribute {attr_path}")
     try:
@@ -84,7 +83,7 @@ def parse_float(text: Optional[str], attr_path: str) -> float:
     except ValueError as e:
         raise ValueError(f"Invalid format for attribute {attr_path}: {text}") from e
 
-def parse_array(text: Optional[str], attr_path: str) -> list[float]:
+def parse_array(text: str | None, attr_path: str) -> list[float]:
     if text is None:
         raise ValueError(f"Missing required attribute {attr_path}")
     try:
@@ -165,7 +164,7 @@ def parse_link(elem: ET.Element) -> Link:
 
 # Joint parsers
 
-def parse_axis(elem: ET.Element, tag_path: str) -> Optional[Axis]:
+def parse_axis(elem: ET.Element, tag_path: str) -> Axis:
     axis_elems = elem.findall('axis')
     if len(axis_elems) > 1:
         raise ValueError(f"Element {tag_path} must contain at most one 'axis' tag")
@@ -173,9 +172,9 @@ def parse_axis(elem: ET.Element, tag_path: str) -> Optional[Axis]:
         xyz = parse_array(axis_elems[0].get('xyz'), f'{tag_path}/axis/@xyz')
         return Axis(xyz=xyz)
     else:
-        return None
+        return Axis(xyz=[1., 0., 0.])
 
-def parse_limit(elem: ET.Element, tag_path: str) -> Optional[Limit]:
+def parse_limit(elem: ET.Element, tag_path: str) -> Limit | None:
     limit_elems = elem.findall('limit')
     if len(limit_elems) > 1:
         raise ValueError(f"Element {tag_path} must contain at most one 'limit' tag")
@@ -214,8 +213,6 @@ def parse_joint(elem: ET.Element) -> Joint:
     origin = parse_origin(elem, f"/joint[@name='{joint_name}']")
     axis = parse_axis(elem, f"/joint[@name='{joint_name}']")
     limit = parse_limit(elem, f"/joint[@name='{joint_name}']")
-    if joint_type in ('revolute', 'continuous', 'prismatic', 'planar') and axis is None:
-        raise ValueError(f"Joint '{joint_name}' of type '{joint_type}' must contain an 'axis' tag")
     if joint_type in ('revolute', 'prismatic') and limit is None:
         raise ValueError(f"Joint '{joint_name}' of type '{joint_type}' must contain a 'limit' tag")
     return Joint(name=joint_name, type=joint_type, parent=parent, child=child, origin=origin, axis=axis, limit=limit)
@@ -250,7 +247,7 @@ def locate_urdf_file(path: Path) -> Path:
         raise FileNotFoundError(f"No URDF or XACRO files found in {root_dir / 'urdf'}")
     return max(urdf_files, key=lambda f: f.stat().st_size)  # Choose the largest file  # TODO: Use a better heuristic
 
-def resolve_package_url(url: str, package_root: Optional[Path]) -> str:
+def resolve_package_url(url: str, package_root: Path | None) -> str:
     if url.startswith('package://'):
         if package_root is None:
             raise ValueError(f"Cannot resolve package URL '{url}' without package_root")

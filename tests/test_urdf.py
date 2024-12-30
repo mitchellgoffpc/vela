@@ -1,6 +1,6 @@
 import io
 import unittest
-from vela.urdf import parse_urdf, Origin, Box, Cylinder, Sphere, Mesh, Axis, Limit
+from vela.helpers.urdf import parse_urdf, Origin, Box, Cylinder, Sphere, Mesh, Axis, Limit
 
 class TestWellFormedLinks(unittest.TestCase):
     def test_basic_link(self):
@@ -25,8 +25,7 @@ class TestWellFormedLinks(unittest.TestCase):
     def test_link_no_visual_or_collision(self):
         """Test that a link with no visual or collision elements is parsed correctly."""
         xml_content = """<robot name="test_robot">
-            <link name="link1">
-            </link>
+            <link name="link1"></link>
         </robot>"""
         f = io.StringIO(xml_content)
         links, _ = parse_urdf(f)
@@ -107,12 +106,10 @@ class TestWellFormedLinks(unittest.TestCase):
                 </visual>
             </link>
         </robot>"""
-
         test_cases = [
             ('', [1.0, 1.0, 1.0]),
             ('scale="2 3 4"', [2.0, 3.0, 4.0]),
-            ('scale="0.5 0.5 0.5"', [0.5, 0.5, 0.5]),
-        ]
+            ('scale="0.5 0.5 0.5"', [0.5, 0.5, 0.5])]
 
         for scale_attr, expected_scale in test_cases:
             with self.subTest(scale=scale_attr):
@@ -136,6 +133,7 @@ class TestWellFormedJoints(unittest.TestCase):
                 <limit lower="-3.14" upper="3.14" effort="1" velocity="1"/>
             </joint>
         </robot>"""
+
         f = io.StringIO(xml_content)
         _, joints = parse_urdf(f)
         self.assertEqual(len(joints), 1)
@@ -179,6 +177,18 @@ class TestWellFormedJoints(unittest.TestCase):
         f = io.StringIO(xml_content)
         _, joints = parse_urdf(f)
         self.assertEqual(joints[0].origin, Origin(xyz=[0.0, 0.0, 0.0], rpy=[0.0, 0.0, 0.0]))
+
+    def test_missing_axis_element(self):
+        """Test that joints without 'axis' element raise ValueError."""
+        xml_content = """<robot name="test_robot">
+            <joint name="joint1" type="fixed">
+                <parent link="link1"/>
+                <child link="link2"/>
+            </joint>
+        </robot>"""
+        f = io.StringIO(xml_content)
+        _, joints = parse_urdf(f)
+        self.assertEqual(joints[0].axis, Axis(xyz=[1.0, 0.0, 0.0]))
 
     def test_missing_limit_bounds(self):
         """Test that missing 'lower' or 'upper' attributes default to zeros."""
@@ -360,54 +370,40 @@ class TestMalformedLinks(unittest.TestCase):
 
 
 class TestMalformedJoints(unittest.TestCase):
-    def test_missing_joint_name(self):
-        """Test that joints without 'name' attribute raise ValueError."""
-        xml_content = """<robot name="test_robot">
-            <joint>
-            </joint>
-        </robot>"""
-        f = io.StringIO(xml_content)
-        with self.assertRaises(ValueError) as context:
-            parse_urdf(f)
-        self.assertEqual("Missing required attribute 'name' in joint element", str(context.exception))
+    def test_malformed_joint_element(self):
+        """Test that joints with malformed elements raise ValueError."""
+        xml_content = '<robot name="test_robot">{joint_element}</robot>'
+        test_cases = {
+            'missing_name': ('<joint type="revolute"/>', "Missing required attribute 'name' in joint element"),
+            'missing_type': ('<joint name="joint1"/>', "Missing required attribute 'type' in joint element 'joint1'"),
+            'unknown_type': ('<joint name="joint1" type="unknown"/>', "Invalid joint type 'unknown' in joint element 'joint1'")}
 
-    def test_missing_joint_type(self):
-        """Test that joints without 'type' attribute raise ValueError."""
-        xml_content = """<robot name="test_robot">
-            <joint name="joint1"/>
-        </robot>"""
-        f = io.StringIO(xml_content)
-        with self.assertRaises(ValueError) as context:
-            parse_urdf(f)
-        self.assertEqual("Missing required attribute 'type' in joint element 'joint1'", str(context.exception))
+        for case, (joint_element, error_msg) in test_cases.items():
+            with self.subTest(case=case):
+                f = io.StringIO(xml_content.format(joint_element=joint_element))
+                with self.assertRaises(ValueError) as context:
+                    parse_urdf(f)
+                self.assertEqual(error_msg, str(context.exception))
 
-    def test_unknown_joint_type(self):
-        """Test that unknown joint types raise ValueError."""
-        xml_content = """<robot name="test_robot">
-            <joint name="joint1" type="unknown"/>
-        </robot>"""
-        f = io.StringIO(xml_content)
-        with self.assertRaises(ValueError) as context:
-            parse_urdf(f)
-        self.assertEqual("Invalid joint type 'unknown' in joint element 'joint1'", str(context.exception))
-
-    def test_missing_parent_or_child_element(self):
-        """Test that joints without 'parent' or 'child' element raise ValueError."""
+    def test_wrong_parent_or_child_element_count(self):
+        """Test that joints without 'parent' or 'child' element or with multiple 'parent' or 'child' elements raise ValueError."""
         xml_content = """<robot name="test_robot">
             <joint name="joint1" type="revolute">
                 {elements}
             </joint>
         </robot>"""
         test_cases = {
-            'parent': '<child link="link1"/>',
-            'child': '<parent link="link1"/>'}
+            'missing_parent': ('parent', '<child link="link1"/>'),
+            'missing_child': ('child', '<parent link="link1"/>'),
+            'multiple_parent': ('parent', '<parent link="link1"/><parent link="link2"/><child link="link1"/>'),
+            'multiple_child': ('child', '<parent link="link1"/><child link="link1"/><child link="link2"/>')}
 
-        for missing_tag, elements in test_cases.items():
-            with self.subTest(case=missing_tag):
+        for case, (tag_name, elements) in test_cases.items():
+            with self.subTest(case=case):
                 f = io.StringIO(xml_content.format(elements=elements))
                 with self.assertRaises(ValueError) as context:
                     parse_urdf(f)
-                self.assertEqual(f"Element /joint[@name='joint1'] must contain exactly one '{missing_tag}' tag", str(context.exception))
+                self.assertEqual(f"Element /joint[@name='joint1'] must contain exactly one '{tag_name}' tag", str(context.exception))
 
     def test_missing_link_attribute(self):
         """Test that joints without 'link' attribute in 'parent' or 'child' element raise ValueError."""
@@ -426,48 +422,6 @@ class TestMalformedJoints(unittest.TestCase):
                 with self.assertRaises(ValueError) as context:
                     parse_urdf(f)
                 self.assertEqual(f"Missing required attribute 'link' in {missing_tag} element of joint 'joint1'", str(context.exception))
-
-    def test_multiple_parent_or_child_elements(self):
-        """Test that joints with multiple 'parent' or 'child' elements raise ValueError."""
-        xml_content = """<robot name="test_robot">
-            <joint name="joint1" type="revolute">
-                <parent link="link1"/>
-                <child link="link2"/>
-                {elements}
-            </joint>
-        </robot>"""
-        test_cases = {
-            'parent': '<parent link="link3"/>',
-            'child': '<child link="link3"/>'}
-
-        for multiple_tag, elements in test_cases.items():
-            with self.subTest(case=multiple_tag):
-                f = io.StringIO(xml_content.format(elements=elements))
-                with self.assertRaises(ValueError) as context:
-                    parse_urdf(f)
-                self.assertEqual(f"Element /joint[@name='joint1'] must contain exactly one '{multiple_tag}' tag", str(context.exception))
-
-    def test_missing_axis_element(self):
-        """Test that joints without 'axis' element raise ValueError."""
-        xml_content = """<robot name="test_robot">
-            <joint name="joint1" type="{joint_type}">
-                <parent link="link1"/>
-                <child link="link2"/>
-            </joint>
-        </robot>"""
-
-        for joint_type in ('fixed', 'floating'):
-            with self.subTest(joint_type=joint_type):
-                f = io.StringIO(xml_content.format(joint_type=joint_type))
-                _, joints = parse_urdf(f)
-                self.assertEqual(joints[0].axis, None)
-
-        for joint_type in ('revolute', 'continuous', 'prismatic', 'planar'):
-            with self.subTest(joint_type=joint_type):
-                f = io.StringIO(xml_content.format(joint_type=joint_type))
-                with self.assertRaises(ValueError) as context:
-                    parse_urdf(f)
-                self.assertEqual(f"Joint 'joint1' of type '{joint_type}' must contain an 'axis' tag", str(context.exception))
 
     def test_missing_limit_element(self):
         """Test that joints without 'limit' element raise ValueError."""
@@ -492,36 +446,27 @@ class TestMalformedJoints(unittest.TestCase):
                     parse_urdf(f)
                 self.assertEqual(f"Joint 'joint1' of type '{joint_type}' must contain a 'limit' tag", str(context.exception))
 
-    def test_multiple_axis_elements(self):
-        """Test that joints with multiple 'axis' elements raise ValueError."""
+    def test_multiple_axis_and_limit_elements(self):
+        """Test that joints with multiple 'axis' or 'limit' elements raise ValueError."""
         xml_content = """<robot name="test_robot">
             <joint name="joint1" type="revolute">
                 <parent link="link1"/>
                 <child link="link2"/>
                 <axis xyz="0 0 1"/>
-                <axis xyz="0 0 1"/>
+                <limit lower="-3.14" upper="3.14" effort="1" velocity="1"/>
+                {elements}
             </joint>
         </robot>"""
-        f = io.StringIO(xml_content)
-        with self.assertRaises(ValueError) as context:
-            parse_urdf(f)
-        self.assertEqual("Element /joint[@name='joint1'] must contain at most one 'axis' tag", str(context.exception))
+        test_cases = {
+            'multiple_axis': ('axis', '<axis xyz="0 0 1"/>'),
+            'multiple_limit': ('limit', '<limit lower="-3.14" upper="3.14" effort="1" velocity="1"/>')}
 
-    def test_multiple_limit_elements(self):
-        """Test that joints with multiple 'limit' elements raise ValueError."""
-        xml_content = """<robot name="test_robot">
-            <joint name="joint1" type="revolute">
-                <parent link="link1"/>
-                <child link="link2"/>
-                <axis xyz="0 0 1"/>
-                <limit lower="-3.14" upper="3.14" effort="1" velocity="1"/>
-                <limit lower="-3.14" upper="3.14" effort="1" velocity="1"/>
-            </joint>
-        </robot>"""
-        f = io.StringIO(xml_content)
-        with self.assertRaises(ValueError) as context:
-            parse_urdf(f)
-        self.assertEqual("Element /joint[@name='joint1'] must contain at most one 'limit' tag", str(context.exception))
+        for case, (tag_name, elements) in test_cases.items():
+            with self.subTest(case=case):
+                f = io.StringIO(xml_content.format(elements=elements))
+                with self.assertRaises(ValueError) as context:
+                    parse_urdf(f)
+                self.assertEqual(f"Element /joint[@name='joint1'] must contain at most one '{tag_name}' tag", str(context.exception))
 
     def test_malformed_mesh_scale(self):
         """Test that malformed 'scale' attribute in mesh element raises ValueError."""

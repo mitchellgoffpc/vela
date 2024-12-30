@@ -45,39 +45,34 @@ def rotation_matrix(axis: np.ndarray, angle: float) -> np.ndarray:
         [0,             0,             0,             1]   # noqa: E226, E241
     ], dtype=np.float32)
 
-def build_transformations(links: dict[str, Link], joints: dict[str, Joint], joint_angles: dict[str, float]) -> dict[str, np.ndarray]:
-    transformations: dict[str, np.ndarray] = {}
-    joint_dict = {joint.child: joint for joint in joints.values()}
+def build_transforms(links: dict[str, Link], joints: dict[str, Joint], joint_angles: dict[str, float]) -> dict[str, np.ndarray]:
+    transforms: dict[str, np.ndarray] = {}
+    parent_joints = {joint.child: joint for joint in joints.values()}
 
     def compute_transform(link_name: str) -> np.ndarray:
-        if link_name in transformations:
-            return transformations[link_name]
-        elif link_name not in joint_dict:
-            transformations[link_name] = np.eye(4, dtype=np.float32)
+        if link_name in transforms:
+            return transforms[link_name]
+        elif link_name not in parent_joints:  # This is the root link
+            transforms[link_name] = np.eye(4, dtype=np.float32)
         else:
-            joint = joint_dict[link_name]
-            parent_transform = compute_transform(joint.parent)
-            joint_transform = create_transform_matrix(joint.origin)
-            if joint.type in ['revolute', 'continuous', 'prismatic']:
-                angle = joint_angles.get(joint.name, 0.0)
-                if joint.type in ['revolute', 'continuous']:
-                    assert joint.axis
-                    axis = np.array(joint.axis.xyz, dtype=np.float32)
-                    rot_matrix = rotation_matrix(axis, angle)
-                    joint_transform = joint_transform @ rot_matrix
-                elif joint.type == 'prismatic':
-                    assert joint.axis
-                    axis = np.array(joint.axis.xyz, dtype=np.float32)
-                    translation = np.eye(4, dtype=np.float32)
-                    translation[:3, 3] = axis * angle
-                    joint_transform = joint_transform @ translation
-            transformations[link_name] = parent_transform @ joint_transform
-        return transformations[link_name]
+            joint = parent_joints[link_name]
+            world_to_parent = compute_transform(joint.parent)
+            parent_to_joint = create_transform_matrix(joint.origin)
+            joint_to_child = np.eye(4, dtype=np.float32)
+            angle = joint_angles.get(joint.name, 0.0)
+            if joint.type in ['revolute', 'continuous']:
+                axis = np.array(joint.axis.xyz, dtype=np.float32)
+                joint_to_child = rotation_matrix(axis, angle)
+            elif joint.type == 'prismatic':
+                axis = np.array(joint.axis.xyz, dtype=np.float32)
+                joint_to_child[:3, 3] = axis * angle
+            transforms[link_name] = world_to_parent @ parent_to_joint @ joint_to_child
+        return transforms[link_name]
 
     for link in links.values():
         compute_transform(link.name)
 
-    return transformations
+    return transforms
 
 
 # Main OpenGL Widget
@@ -93,17 +88,10 @@ class OpenGLWidget(QOpenGLWidget):
         self.links = {link.name: link for link in links}
         self.joints = {joint.name: joint for joint in joints}
         self.joint_angles = {joint.name: 0.0 for joint in joints}
-        self.transformations: dict[str, np.ndarray] = {}
-        self.update_transformations()
+        self.transforms: dict[str, np.ndarray] = {}
 
-    def update_transformations(self):
-        self.transformations = build_transformations(self.links, self.joints, self.joint_angles)
-        for mesh in self.meshes:
-            for visual in self.links[mesh.link_name].visual:
-                if isinstance(visual.geometry, LoadedMesh):
-                    visual_transform = create_transform_matrix(visual.origin)
-                    model_matrix = self.transformations[mesh.link_name] @ visual_transform
-                    mesh.model_matrix = model_matrix
+    def update_transforms(self):
+        self.transforms = build_transforms(self.links, self.joints, self.joint_angles)
 
     def mousePressEvent(self, event: QMouseEvent | None) -> None:
         if event:
@@ -133,12 +121,11 @@ class OpenGLWidget(QOpenGLWidget):
 
     def initializeGL(self) -> None:
         self.shader = create_shader_program(self)
-        self.update_transformations()
+        self.update_transforms()
         for link in self.links.values():
             for visual in link.visual:
                 if isinstance(visual.geometry, LoadedMesh):
-                    visual_transform = create_transform_matrix(visual.origin)
-                    model_matrix = self.transformations[link.name] @ visual_transform
+                    model_matrix = create_transform_matrix(visual.origin)
                     vao = create_vao(self.shader, visual.geometry.vertices, visual.geometry.normals)
                     self.meshes.append(MeshObject(link.name, len(visual.geometry.vertices) * 3, vao, model_matrix))
 
@@ -172,7 +159,8 @@ class OpenGLWidget(QOpenGLWidget):
         self.shader.setUniformValue("view", QMatrix4x4(*view.flatten()))
 
         for mesh in self.meshes:
-            self.shader.setUniformValue("model", QMatrix4x4(*mesh.model_matrix.flatten()))
+            model_matrix = self.transforms[mesh.link_name] @ mesh.model_matrix
+            self.shader.setUniformValue("model", QMatrix4x4(*model_matrix.flatten()))
             mesh.vao.bind()
             GL.glDrawArrays(GL.GL_TRIANGLES, 0, mesh.n_elements)
             mesh.vao.release()
@@ -216,9 +204,8 @@ class MainWindow(QMainWindow):
         self.sliders_widget.setGeometry(10, self.height() - 350, 300, 340)
 
     def on_slider_value_changed(self, joint_name: str, value: int):
-        angle_rad = np.radians(value)
-        self.opengl_widget.joint_angles[joint_name] = angle_rad
-        self.opengl_widget.update_transformations()
+        self.opengl_widget.joint_angles[joint_name] = np.radians(value)
+        self.opengl_widget.update_transforms()
         self.opengl_widget.update()
 
 
