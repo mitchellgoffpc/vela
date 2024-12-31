@@ -3,8 +3,6 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from dataclasses import dataclass
 
-from vela.helpers.stl import load_stl
-
 # Common dataclasses
 
 @dataclass
@@ -254,6 +252,16 @@ def resolve_package_url(url: str, package_root: Path | None) -> str:
         return str(package_root / url.removeprefix('package://'))
     else:
         return url
+
+def load_stl(path: Path | str) -> tuple[np.ndarray, np.ndarray]:
+    with open(path, 'rb') as f:
+        f.read(80)  # Skip header
+        num_triangles = int.from_bytes(f.read(4), 'little')
+        bytedata = np.frombuffer(f.read(num_triangles * (12 * 4 + 2)), np.uint8).reshape(num_triangles, 12 * 4 + 2)
+        floatdata = bytedata[:, :-2].view(np.float32).reshape(num_triangles, 4, 3)
+        normals = floatdata[:, :1].repeat(3, axis=1)
+        vertices = floatdata[:, 1:]
+        return vertices.copy(), normals.copy()
 
 def load_urdf(path: Path | str) -> tuple[list[Link], list[Joint]]:
     path = Path(path)
