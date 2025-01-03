@@ -64,7 +64,7 @@ def create_buffer(data: np.ndarray, buffer_type: QOpenGLBuffer.Type) -> QOpenGLB
     buffer.create()
     buffer.setUsagePattern(QOpenGLBuffer.UsagePattern.StaticDraw)
     buffer.bind()
-    buffer.allocate(sip.voidptr(data.tobytes()), data.nbytes)
+    buffer.allocate(sip.voidptr(data.data), data.nbytes)
     return buffer
 
 def create_vao(shader: QOpenGLShaderProgram, vertices: np.ndarray, normals: np.ndarray) -> QOpenGLVertexArrayObject:
