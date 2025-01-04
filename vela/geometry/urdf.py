@@ -226,52 +226,21 @@ def parse_urdf(path: Path | str) -> tuple[list[Link], list[Joint]]:
     joints = [parse_joint(elem) for elem in root.findall('joint')]
     return links, joints
 
-def locate_urdf_file(path: Path) -> Path:
-    # locate the package.xml file(s)
-    package_xml_files = list(path.rglob('package.xml'))
-    if not package_xml_files:
-        raise FileNotFoundError(f"No package.xml file found in {path}")
-
-    # sort package.xml files by depth, and raise an error if there are multiple at the same depth
-    package_xml_files.sort(key=lambda p: len(p.parts))
-    if len(package_xml_files) > 1 and len(package_xml_files[0].parts) == len(package_xml_files[1].parts):
-        raise ValueError("Multiple package.xml files found at the same directory level")
-
-    root_dir = package_xml_files[0].parent
-    urdf_files = list(root_dir.glob('urdf/*.urdf')) or list(root_dir.glob('urdf/*.xacro'))
-    if not urdf_files:
-        raise FileNotFoundError(f"No URDF or XACRO files found in {root_dir / 'urdf'}")
-    return max(urdf_files, key=lambda f: f.stat().st_size)  # Choose the largest file  # TODO: Use a better heuristic
-
-def resolve_package_url(url: str, package_root: Path | None) -> str:
-    if url.startswith('package://'):
-        if package_root is None:
-            raise ValueError(f"Cannot resolve package URL '{url}' without package_root")
-        return str(package_root / url.removeprefix('package://'))
-    else:
-        return url
-
 def load_urdf(path: Path | str) -> tuple[list[Link], list[Joint]]:
     path = Path(path)
-    if path.is_file():
-        package_root = None
-        urdf_file = path
-    elif path.is_dir():
-        package_root = path
-        urdf_file = locate_urdf_file(path)
-    else:
+    if not path.is_file():
         raise FileNotFoundError(f"Invalid path: {path}")
 
     # Parse urdf and load mesh files
-    links, joints = parse_urdf(urdf_file)
+    links, joints = parse_urdf(path)
     for link in links:
         for model in link.visual + link.collision:
             if isinstance(model.geometry, Mesh):
-                filename = resolve_package_url(model.geometry.filename, package_root)
+                filename = Path(path.parent / model.geometry.filename).resolve()
                 vertices, normals = load_stl(filename)
                 if model.geometry.scale != [1., 1., 1.]:
                     vertices *= np.array(model.geometry.scale)
-                model.geometry = LoadedMesh(filename=filename, vertices=vertices, normals=normals)
+                model.geometry = LoadedMesh(filename=str(filename), vertices=vertices, normals=normals)
 
     return links, joints
 

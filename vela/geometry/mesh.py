@@ -1,6 +1,17 @@
 import numpy as np
 from pathlib import Path
 
+# Helper functions
+
+def vertices_to_faces(triangles: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    vertices = triangles.reshape(-1, 3)
+    unique_vertices, inverse_indices = np.unique(vertices, axis=0, return_inverse=True)
+    indices = inverse_indices.reshape(-1, 3)
+    return unique_vertices, indices
+
+
+# Loaders
+
 def load_stl(path: Path | str) -> tuple[np.ndarray, np.ndarray]:
     with open(path, 'rb') as f:
         f.read(80)  # Skip header
