@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QSlider, QLabel,
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtOpenGL import QOpenGLVertexArrayObject
 
-from vela.ui.transforms import rot_from_euler, look_at, projection_matrix
+from vela.ui.camera import rot_from_euler, look_at, projection_matrix
 from vela.ui.shaders import create_shader_program, create_vao
 from vela.geometry.urdf import load_urdf, LoadedMesh, Link, Joint, Origin
 
