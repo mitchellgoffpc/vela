@@ -20,6 +20,10 @@ class MeshObject:
     model_matrix: np.ndarray
 
 
+def get_mesh_dimension(mesh: LoadedMesh) -> float:
+    vertices = np.array(mesh.vertices)
+    return np.max(vertices) - np.min(vertices)
+
 def create_transform_matrix(origin: Origin) -> np.ndarray:
     tx, ty, tz = origin.xyz
     r, p, y = origin.rpy
@@ -80,15 +84,17 @@ def build_transforms(links: dict[str, Link], joints: dict[str, Joint], joint_ang
 class OpenGLWidget(QOpenGLWidget):
     def __init__(self, links: list[Link], joints: list[Joint]):
         super().__init__()
-        self.last_pos = QPoint()
-        self.camera_rotation: list[float] = [0, 0]
-        self.camera_radius: float = 1.0
         self.meshes: list[MeshObject] = []
-
         self.links = {link.name: link for link in links}
         self.joints = {joint.name: joint for joint in joints}
         self.joint_angles = {joint.name: 0.0 for joint in joints}
         self.transforms: dict[str, np.ndarray] = {}
+
+        dimensions = [get_mesh_dimension(mesh.geometry) for link in links for mesh in link.visual if isinstance(mesh.geometry, LoadedMesh)]
+        self.scale = max(dimensions, default=0.0)
+        self.camera_radius = max(1.0, self.scale * 1.5)
+        self.camera_rotation: list[float] = [0, 0]
+        self.last_pos = QPoint()
 
     def update_transforms(self):
         self.transforms = build_transforms(self.links, self.joints, self.joint_angles)
@@ -111,8 +117,8 @@ class OpenGLWidget(QOpenGLWidget):
     def wheelEvent(self, event: QWheelEvent | None) -> None:
         if event:
             delta = event.angleDelta().y() / 120
-            self.camera_radius -= delta * 0.5
-            self.camera_radius = max(0.1, min(5.0, self.camera_radius))
+            self.camera_radius -= delta * self.scale
+            self.camera_radius = max(0.1, min(1000.0, self.camera_radius))
             self.update()
 
     def initializeGL(self) -> None:
@@ -126,7 +132,7 @@ class OpenGLWidget(QOpenGLWidget):
                     self.meshes.append(MeshObject(link.name, len(visual.geometry.vertices) * 3, vao, model_matrix))
 
         # Set up projection and lighting uniforms
-        fov, aspect, near, far = 45.0, 800.0 / 600.0, 0.01, 100.0
+        fov, aspect, near, far = 45.0, 800.0 / 600.0, 0.01, 10000.0
         projection = projection_matrix(fov, aspect, near, far)
         self.shader.setUniformValue("projection", QMatrix4x4(*projection.flatten()))
         self.shader.setUniformValue("lightPos", 0.0, 10.0, 5.0)
@@ -179,6 +185,7 @@ class MainWindow(QMainWindow):
 
         # Create sliders widget
         sliders_layout = QVBoxLayout()
+        slider_joints = []
         for joint in joints:
             if joint.type in ['revolute', 'continuous']:
                 label = QLabel(joint.name)
@@ -190,11 +197,14 @@ class MainWindow(QMainWindow):
                 slider.valueChanged.connect(lambda value, joint_name=joint.name: self.on_slider_value_changed(joint_name, value))
                 sliders_layout.addWidget(label)
                 sliders_layout.addWidget(slider)
+                slider_joints.append(joint.name)
 
         self.sliders_widget = QWidget(self)
         self.sliders_widget.setLayout(sliders_layout)
         self.sliders_widget.setStyleSheet("background-color: rgba(0, 0, 0, 100);")
         self.sliders_widget.setGeometry(10, self.height() - 350, 300, 340)
+        if not slider_joints:
+            self.sliders_widget.hide()
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         if event and event.key() == Qt.Key.Key_Escape:
