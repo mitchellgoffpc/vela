@@ -2,7 +2,8 @@ import numpy as np
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from dataclasses import dataclass
-from vela.geometry.mesh import load_stl
+
+from vela.geometry.mesh import load_mesh
 
 # Common dataclasses
 
@@ -219,30 +220,37 @@ def parse_joint(elem: ET.Element) -> Joint:
 
 # URDF parser / loader
 
-def parse_urdf(path: Path | str) -> tuple[list[Link], list[Joint]]:
+def parse_urdf(path: Path) -> tuple[list[Link], list[Joint]]:
     tree = ET.parse(path)
     root = tree.getroot()
     links = [parse_link(elem) for elem in root.findall('link')]
     joints = [parse_joint(elem) for elem in root.findall('joint')]
     return links, joints
 
-def load_urdf(path: Path | str) -> tuple[list[Link], list[Joint]]:
-    path = Path(path)
-    if not path.is_file():
-        raise FileNotFoundError(f"Invalid path: {path}")
-
-    # Parse urdf and load mesh files
+def load_urdf(path: Path) -> tuple[list[Link], list[Joint]]:
     links, joints = parse_urdf(path)
     for link in links:
         for model in link.visual + link.collision:
             if isinstance(model.geometry, Mesh):
                 filename = Path(path.parent / model.geometry.filename).resolve()
-                vertices, normals = load_stl(filename)
+                vertices, normals = load_mesh(filename)
                 if model.geometry.scale != [1., 1., 1.]:
-                    vertices *= np.array(model.geometry.scale)
+                    vertices = vertices * np.array(model.geometry.scale, dtype=np.float32)
                 model.geometry = LoadedMesh(filename=str(filename), vertices=vertices, normals=normals)
 
     return links, joints
+
+def load_rig(path: Path | str) -> tuple[list[Link], list[Joint]]:
+    path = Path(path)
+    if path.suffix == '.urdf':
+        return load_urdf(path)
+    elif path.suffix in ('.stl', '.obj'):
+        vertices, normals = load_mesh(path)
+        mesh = LoadedMesh(filename=str(path), vertices=vertices, normals=normals)
+        model = Model(origin=Origin(xyz=[0., 0., 0.], rpy=[0., 0., 0.]), geometry=mesh)
+        return [Link(name=path.stem, visual=[model], collision=[model])], []
+    else:
+        raise ValueError(f"Unsupported file extension: {path.suffix}")
 
 
 # Entry point for testing
@@ -253,7 +261,7 @@ if __name__ == '__main__':
         print(f"Usage: {sys.argv[0]} <urdf_file>")
         sys.exit(1)
 
-    links, joints = load_urdf(sys.argv[1])
+    links, joints = load_rig(sys.argv[1])
 
     print("Links:")
     for link in links:

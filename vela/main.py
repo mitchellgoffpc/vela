@@ -10,7 +10,7 @@ from PyQt6.QtOpenGL import QOpenGLVertexArrayObject
 
 from vela.ui.camera import rot_from_euler, look_at, projection_matrix
 from vela.ui.shaders import create_shader_program, create_vao
-from vela.geometry.urdf import load_urdf, LoadedMesh, Link, Joint, Origin
+from vela.geometry.urdf import load_rig, LoadedMesh, Link, Joint, Origin
 
 @dataclass
 class MeshObject:
@@ -115,10 +115,6 @@ class OpenGLWidget(QOpenGLWidget):
             self.camera_radius = max(0.1, min(5.0, self.camera_radius))
             self.update()
 
-    def keyPressEvent(self, event: QKeyEvent | None) -> None:
-        if event and event.key() == Qt.Key.Key_Escape:
-            self.close()
-
     def initializeGL(self) -> None:
         self.shader = create_shader_program(self)
         self.update_transforms()
@@ -171,13 +167,13 @@ class OpenGLWidget(QOpenGLWidget):
 # Main application window
 
 class MainWindow(QMainWindow):
-    def __init__(self, urdf_path: str):
+    def __init__(self, rig_path: str):
         super().__init__()
         self.setWindowTitle("Vela")
         self.resize(800, 600)
 
         # Create opengl widget
-        links, joints = load_urdf(urdf_path)
+        links, joints = load_rig(rig_path)
         self.opengl_widget = OpenGLWidget(links, joints)
         self.setCentralWidget(self.opengl_widget)
 
@@ -200,6 +196,10 @@ class MainWindow(QMainWindow):
         self.sliders_widget.setStyleSheet("background-color: rgba(0, 0, 0, 100);")
         self.sliders_widget.setGeometry(10, self.height() - 350, 300, 340)
 
+    def keyPressEvent(self, event: QKeyEvent | None) -> None:
+        if event and event.key() == Qt.Key.Key_Escape:
+            self.close()
+
     def resizeEvent(self, event: QResizeEvent | None) -> None:
         self.sliders_widget.setGeometry(10, self.height() - 350, 300, 340)
 
@@ -213,7 +213,7 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} <urdf_file>")
+        print(f"Usage: {sys.argv[0]} <rig_path>")
         sys.exit(1)
 
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseDesktopOpenGL)
