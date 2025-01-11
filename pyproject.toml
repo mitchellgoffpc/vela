@@ -17,6 +17,8 @@ dependencies = [
     "PyQt6",
     "pyserial",
     "PyOpenGL",
+    "PyOpenCL",
+    "siphash24",
 ]
 
 [project.scripts]

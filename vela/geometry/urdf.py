@@ -1,9 +1,11 @@
 import numpy as np
+import hashlib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from dataclasses import dataclass
 
-from vela.geometry.mesh import load_mesh
+from vela.geometry.simplify import simplify
+from vela.geometry.mesh import load_mesh, join_faces, split_faces, compute_normals
 
 # Common dataclasses
 
@@ -227,17 +229,42 @@ def parse_urdf(path: Path) -> tuple[list[Link], list[Joint]]:
     joints = [parse_joint(elem) for elem in root.findall('joint')]
     return links, joints
 
+def simplify_and_cache(vertices: np.ndarray, target_v: int = 1000) -> tuple[np.ndarray, np.ndarray]:
+    vertex_bytes = vertices.tobytes()
+    hash_md5 = hashlib.md5(vertex_bytes).hexdigest()
+    cache_dir = Path.home() / ".cache" / "vela"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"{hash_md5}.npz"
+
+    if cache_file.exists():
+        data = np.load(cache_file)
+        return data["vertices"], data["normals"]
+    else:
+        vertices, faces = join_faces(vertices)
+        vertices, faces = simplify(vertices, faces, target_v=target_v)
+        vertices, _ = split_faces(faces, vertices, None)
+        normals = compute_normals(vertices)
+        np.savez(cache_file, vertices=vertices, normals=normals)
+        return vertices, normals
+
+def load_geometry(path: Path, mesh: Mesh, should_simplify: bool = False) -> LoadedMesh:
+    filename = Path(path.parent / mesh.filename).resolve()
+    vertices, normals = load_mesh(filename)
+    if mesh.scale != [1., 1., 1.]:
+        vertices = vertices * np.array(mesh.scale, dtype=np.float32)
+    if should_simplify and len(vertices) > 1000:
+        vertices, normals = simplify_and_cache(vertices)
+    return LoadedMesh(filename=str(filename), vertices=vertices, normals=normals)
+
 def load_urdf(path: Path) -> tuple[list[Link], list[Joint]]:
     links, joints = parse_urdf(path)
     for link in links:
-        for model in link.visual + link.collision:
+        for model in link.visual:
             if isinstance(model.geometry, Mesh):
-                filename = Path(path.parent / model.geometry.filename).resolve()
-                vertices, normals = load_mesh(filename)
-                if model.geometry.scale != [1., 1., 1.]:
-                    vertices = vertices * np.array(model.geometry.scale, dtype=np.float32)
-                model.geometry = LoadedMesh(filename=str(filename), vertices=vertices, normals=normals)
-
+                model.geometry = load_geometry(path, model.geometry, should_simplify=True)
+        for model in link.collision:
+            if isinstance(model.geometry, Mesh):
+                model.geometry = load_geometry(path, model.geometry, should_simplify=True)
     return links, joints
 
 def load_rig(path: Path | str) -> tuple[list[Link], list[Joint]]:
@@ -248,7 +275,7 @@ def load_rig(path: Path | str) -> tuple[list[Link], list[Joint]]:
         vertices, normals = load_mesh(path)
         mesh = LoadedMesh(filename=str(path), vertices=vertices, normals=normals)
         model = Model(origin=Origin(xyz=[0., 0., 0.], rpy=[0., 0., 0.]), geometry=mesh)
-        return [Link(name=path.stem, visual=[model], collision=[model])], []
+        return [Link(name=path.stem, visual=[model], collision=[])], []
     else:
         raise ValueError(f"Unsupported file extension: {path.suffix}")
 

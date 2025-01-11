@@ -11,6 +11,7 @@ from PyQt6.QtOpenGL import QOpenGLVertexArrayObject
 from vela.ui.camera import rot_from_euler, look_at, projection_matrix
 from vela.ui.shaders import create_shader_program, create_vao
 from vela.geometry.urdf import load_rig, LoadedMesh, Link, Joint, Origin
+from vela.geometry.collision import CollisionHandler
 
 @dataclass
 class MeshObject:
@@ -89,6 +90,7 @@ class OpenGLWidget(QOpenGLWidget):
         self.joints = {joint.name: joint for joint in joints}
         self.joint_angles = {joint.name: 0.0 for joint in joints}
         self.transforms: dict[str, np.ndarray] = {}
+        self.vertex_arrays: list[np.ndarray] = []  # Added line
 
         dimensions = [get_mesh_dimension(mesh.geometry) for link in links for mesh in link.visual if isinstance(mesh.geometry, LoadedMesh)]
         self.scale = max(dimensions, default=0.0)
@@ -124,12 +126,20 @@ class OpenGLWidget(QOpenGLWidget):
     def initializeGL(self) -> None:
         self.shader = create_shader_program(self)
         self.update_transforms()
+        self.meshes = []
+        self.vertex_arrays = []  # Added line
         for link in self.links.values():
             for visual in link.visual:
                 if isinstance(visual.geometry, LoadedMesh):
                     model_matrix = create_transform_matrix(visual.origin)
                     vao = create_vao(self.shader, visual.geometry.vertices, visual.geometry.normals)
                     self.meshes.append(MeshObject(link.name, len(visual.geometry.vertices) * 3, vao, model_matrix))
+                    # Collect vertex arrays for collision detection
+                    vertex_array = np.array(visual.geometry.vertices, dtype=np.float32).reshape(-1, 9)
+                    self.vertex_arrays.append(vertex_array)
+
+        # Initialize collision handler
+        self.collision_handler = CollisionHandler(self.vertex_arrays)
 
         # Set up projection and lighting uniforms
         fov, aspect, near, far = 45.0, 800.0 / 600.0, 0.01, 10000.0
@@ -160,9 +170,23 @@ class OpenGLWidget(QOpenGLWidget):
         view = look_at(camera_pos, camera_target, camera_up)
         self.shader.setUniformValue("view", QMatrix4x4(*view.flatten()))
 
+        # Update transformations and compute collisions
+        transformations = []
         for mesh in self.meshes:
             model_matrix = self.transforms[mesh.link_name] @ mesh.model_matrix
+            transformations.append(model_matrix)
+
+        collision_matrix = self.collision_handler(transformations)
+        mesh_collisions = np.any(collision_matrix, axis=1)
+        # mesh_collisions = np.zeros(len(self.meshes), dtype=bool)
+
+        for i, mesh in enumerate(self.meshes):
+            model_matrix = transformations[i]
             self.shader.setUniformValue("model", QMatrix4x4(*model_matrix.flatten()))
+            if mesh_collisions[i]:
+                self.shader.setUniformValue("objectColor", 1.0, 0.0, 0.0)  # Red color for colliding parts
+            else:
+                self.shader.setUniformValue("objectColor", 1.0, 0.5, 0.2)  # Original color
             mesh.vao.bind()
             GL.glDrawArrays(GL.GL_TRIANGLES, 0, mesh.n_elements)
             mesh.vao.release()
