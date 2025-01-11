@@ -165,77 +165,78 @@ __kernel void triangle_triangle_intersection(
 }
 """
 
+
 class CollisionHandler:
-    def __init__(self, vertex_arrays: list[np.ndarray]) -> None:
+    def __init__(self, vertex_arrays: list[np.ndarray], joints: list[tuple[int, int, str]]) -> None:
         platforms = cl.get_platforms()
-        self.ctx = cl.Context(dev_type=cl.device_type.ALL,
-                              properties=[(cl.context_properties.PLATFORM, platforms[0])])
+        self.ctx = cl.Context(dev_type=cl.device_type.ALL, properties=[(cl.context_properties.PLATFORM, platforms[0])])
         self.queue = cl.CommandQueue(self.ctx)
         self.prg = cl.Program(self.ctx, KERNEL_CODE).build()
         self.meshes = vertex_arrays
+        self.joints = joints
 
-    def __call__(self, transformations: list[np.ndarray]) -> np.ndarray:
-        N = len(self.meshes)
-        collision_matrix = np.zeros((N, N), dtype=bool)
-        transformed_meshes = []
+        # Create CL buffers and upload raw vertices
+        self.vertex_buffers = []
+        self.transformed_vertex_buffers = []
+        self.vertex_counts = []
+        self.triangle_counts = []
 
-        for mesh, transform in zip(self.meshes, transformations):
-            matrix = np.array(transform, dtype=np.float32).T.flatten()
+        for mesh in self.meshes:
             triangle_count = mesh.shape[0]
             vertex_count = triangle_count * 3
             vertex_array = mesh.astype(np.float32).reshape((-1, 3))
             vertex_array_flat = vertex_array.flatten()
+
             vertices_in = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=vertex_array_flat)
             vertices_out = cl.Buffer(self.ctx, cl.mem_flags.WRITE_ONLY, vertex_array_flat.nbytes)
+
+            self.vertex_buffers.append(vertices_in)
+            self.transformed_vertex_buffers.append(vertices_out)
+            self.vertex_counts.append(vertex_count)
+            self.triangle_counts.append(triangle_count)
+
+        # Create buffers for collision results
+        self.collision_result_buffers = []
+        self.collision_result_np_arrays = []
+
+        for i in range(len(self.meshes)):
+            T1_count = self.triangle_counts[i]
+            T2_count = self.triangle_counts[5]  # Assuming we're always comparing with mesh 5
+            results_np = np.empty(T1_count * T2_count, dtype=np.int32)
+            results_cl = cl.Buffer(self.ctx, cl.mem_flags.WRITE_ONLY, results_np.nbytes)
+            self.collision_result_buffers.append(results_cl)
+            self.collision_result_np_arrays.append(results_np)
+
+    def __call__(self, transformations: list[np.ndarray]) -> np.ndarray:
+        N = len(self.meshes)
+        collision_matrix = np.zeros((N, N), dtype=bool)
+
+        import time
+        st = time.perf_counter()
+
+        for i, transform in enumerate(transformations):
+            matrix = np.array(transform, dtype=np.float32).T.flatten()
             matrix_buf = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=matrix)
-            self.prg.transform_vertices(self.queue, (vertex_count,), None,
-                                        vertices_in, vertices_out, matrix_buf, np.int32(vertex_count))
-            transformed_vertex_array_flat = np.empty_like(vertex_array_flat)
-            cl.enqueue_copy(self.queue, transformed_vertex_array_flat, vertices_out)
-            transformed_vertex_array = transformed_vertex_array_flat.reshape((-1, 9))
-            transformed_meshes.append(transformed_vertex_array)
+            self.prg.transform_vertices(self.queue, (self.vertex_counts[i],), None,
+                                        self.vertex_buffers[i], self.transformed_vertex_buffers[i], matrix_buf, np.int32(self.vertex_counts[i]))
 
         for i in range(N):
-            T1_array = transformed_meshes[i]
-            T2_array = transformed_meshes[-1]
-            T1_count = T1_array.shape[0]
-            T2_count = T2_array.shape[0]
+            T1_count = self.triangle_counts[i]
+            T2_count = self.triangle_counts[5]
             if T1_count == 0 or T2_count == 0:
                 continue
-            T1_flat = T1_array.astype(np.float32).flatten()
-            T2_flat = T2_array.astype(np.float32).flatten()
-            T1_cl = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=T1_flat)
-            T2_cl = cl.Buffer(self.ctx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=T2_flat)
-            results_np = np.zeros(T1_count * T2_count, dtype=np.int32)
-            results_cl = cl.Buffer(self.ctx, cl.mem_flags.WRITE_ONLY, results_np.nbytes)
             self.prg.triangle_triangle_intersection(self.queue, (T1_count * T2_count,), None,
-                                                    T1_cl, T2_cl, results_cl,
+                                                    self.transformed_vertex_buffers[i], self.transformed_vertex_buffers[5], self.collision_result_buffers[i],
                                                     np.int32(T1_count), np.int32(T2_count))
-            cl.enqueue_copy(self.queue, results_np, results_cl)
-            if np.any(results_np):
-                collision_matrix[i, 0] = True
-                collision_matrix[0, i] = True
 
-                if i == 6:
-                    t1_result = np.zeros_like(T1_flat)
-                    t2_result = np.zeros_like(T2_flat)
-                    cl.enqueue_copy(self.queue, t1_result, T1_cl)
-                    cl.enqueue_copy(self.queue, t2_result, T2_cl)
-                    t1_result = t1_result.reshape((-1, 3, 3))
-                    t2_result = t2_result.reshape((-1, 3, 3))
-                    results_np = results_np.reshape((T1_count, T2_count))
-                    results_idx = np.where(results_np == 1)
-                    for i, j in list(zip(results_idx[0], results_idx[1]))[:3]:
-                        print(i, j)
-                        print(t1_result[i])
-                        print(t2_result[j])
-                        print()
-                    # t1_triangles = t1_result[np.any(results_np == 1, axis=1)]
-                    # t2_triangles = t2_result[np.any(results_np == 1, axis=0)]
-                    # print(t1_triangles.shape)
-                    # print(t2_triangles.shape)
-                    # print(t1_triangles[:3])
-                    # print(t2_triangles[:3])
+        self.queue.finish()
+        print(f"Computed all collisions in {time.perf_counter() - st:.3f}s")
+
+        for i in range(N):
+            cl.enqueue_copy(self.queue, self.collision_result_np_arrays[i], self.collision_result_buffers[i])
+            if np.any(self.collision_result_np_arrays[i]):
+                collision_matrix[i, 5] = True
+                collision_matrix[5, i] = True
 
         # for i in range(N):
         #     for j in range(i + 1, N):
@@ -258,4 +259,5 @@ class CollisionHandler:
         #         if np.any(results_np):
         #             collision_matrix[i, j] = True
         #             collision_matrix[j, i] = True
+
         return collision_matrix
