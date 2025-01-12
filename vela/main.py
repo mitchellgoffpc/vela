@@ -139,9 +139,7 @@ class OpenGLWidget(QOpenGLWidget):
                     self.vertex_arrays.append(vertex_array)
 
         # Initialize collision handler
-        link_to_idx = {mesh.link_name: i for i, mesh in enumerate(self.meshes)}
-        joint_pairs = [(link_to_idx[joint.parent], link_to_idx[joint.child], joint.type) for joint in self.joints.values()]
-        self.collision_handler = CollisionHandler(self.vertex_arrays, joint_pairs)
+        self.collision_handler = CollisionHandler(self.vertex_arrays)
 
         # Set up projection and lighting uniforms
         fov, aspect, near, far = 45.0, 800.0 / 600.0, 0.01, 10000.0

@@ -1,4 +1,4 @@
-__kernel void reduce_any(
+__kernel void reduce_sum(
     __global const int* input,
     __global int* output,
     const unsigned int N)
@@ -15,7 +15,7 @@ __kernel void reduce_any(
 
     for (unsigned int stride = group_size >> 1; stride > 0; stride >>= 1) {
         if (lid < stride) {
-            ldata[lid] = ldata[lid] || ldata[lid + stride];
+            ldata[lid] = ldata[lid] + ldata[lid + stride];
         }
         barrier(CLK_LOCAL_MEM_FENCE);
     }
